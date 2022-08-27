@@ -1,0 +1,1 @@
+# rssparser2qbittorrent
