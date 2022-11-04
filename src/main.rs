@@ -1,25 +1,19 @@
 use std::error::Error;
 
-use clap::Parser;
 use regex::Regex;
 use rss::Channel;
 use scraper::{Html, Selector};
 
-#[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
-struct Args {
-    #[clap(short, long, value_parser)]
-    url: String,
-    #[clap(short, long, value_parser)]
-    best_regex: String,
-}
+use cli::Cli;
+
+mod cli;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    run(&Args::parse());
+    run(&Cli::load());
     Ok(())
 }
 
-fn run(args: &Args) {
+fn run(args: &Cli) {
     let channel = get_rss(&args).expect("Failed to get rss content");
     for item in channel.items {
         println!("Title: {}\n\tBest Url: {}", item.title.unwrap(), get_best_url(item.description.unwrap(), args).unwrap_or(String::from("None best found")));
@@ -35,15 +29,15 @@ struct Magnet {
 }
 
 impl Magnet {
-    fn new(title: String, uri: String, size_str: String) -> Self {
+    fn new(title: &str, uri: &str, size_str: &str) -> Self {
         let size = Self::convert_size(&size_str);
         println!("size: {}", size.unwrap());
-        Magnet { title, uri, size_str, size: size.unwrap_or(0) }
+        Magnet { title: title.to_string(), uri: uri.to_string(), size_str: size_str.to_string(), size: size.unwrap_or(0) }
     }
 
-    fn convert_size(size_str: &String) -> Option<u32> {
+    fn convert_size(size_str: &str) -> Option<u32> {
         let re = Regex::new(r"([\d.]+)(.+)").unwrap();
-        let cap = re.captures(size_str.as_str())?;
+        let cap = re.captures(size_str)?;
         if cap.len() <= 2 {
             return None;
         }
@@ -56,7 +50,7 @@ impl Magnet {
 }
 
 
-fn get_best_url(description: String, args: &Args) -> Option<String> {
+fn get_best_url(description: String, args: &Cli) -> Option<String> {
     let magnets = get_magnets(description, args);
     Some(get_best_magnet(magnets)?.uri)
 }
@@ -80,7 +74,7 @@ fn get_best_magnet(magnets: Vec<Magnet>) -> Option<Magnet> {
     result
 }
 
-fn get_magnets(description: String, args: &Args) -> Vec<Magnet> {
+fn get_magnets(description: String, args: &Cli) -> Vec<Magnet> {
     let fragment = Html::parse_fragment(description.as_str());
     let selector = Selector::parse(r#"a[href]"#).unwrap();
     let re = Regex::new(args.best_regex.as_str()).unwrap();
@@ -94,14 +88,14 @@ fn get_magnets(description: String, args: &Args) -> Vec<Magnet> {
         if href.starts_with("magnet") {
             let str = a.text().collect::<String>();
             if let Some(cap) = re.captures(str.as_str()) {
-                result.push(Magnet::new(cap[1].to_string(), href.to_string(), cap[2].to_string()));
+                result.push(Magnet::new(&cap[1], href, &cap[2]));
             }
         }
     }
     result
 }
 
-fn get_rss(args: &Args) -> Result<Channel, Box<dyn Error>> {
+fn get_rss(args: &Cli) -> Result<Channel, Box<dyn Error>> {
     let resp = reqwest::blocking::get(&args.url)?.bytes()?;
     let channel = Channel::read_from(&(resp[..]))?;
     Ok(channel)
